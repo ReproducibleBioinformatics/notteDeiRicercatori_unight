@@ -1,0 +1,15 @@
+{
+  "name": "notte-ricercatori-mappa",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler pages dev",
+    "db:local": "wrangler d1 execute notte-ricercatori --local --file=./schema.sql",
+    "db:remote": "wrangler d1 execute notte-ricercatori --remote --file=./schema.sql",
+    "model": "python3 tools/build_model.py"
+  },
+  "devDependencies": {
+    "wrangler": "^4.0.0"
+  }
+}

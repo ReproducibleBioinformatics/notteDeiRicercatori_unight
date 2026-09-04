@@ -1,0 +1,16 @@
+name = "notte-ricercatori-mappa"
+compatibility_date = "2026-01-01"
+pages_build_output_dir = "public"
+
+# Il binding del database. Sostituisci database_id con quello che ti stampa
+# `npx wrangler d1 create notte-ricercatori` (o copialo dalla dashboard).
+[[d1_databases]]
+binding = "DB"
+database_name = "notte-ricercatori"
+database_id = "METTI-QUI-IL-TUO-DATABASE-ID"
+
+[vars]
+# Cambiali dalla dashboard di Cloudflare (Settings > Variables and secrets),
+# non lasciarli in chiaro nel repository.
+HASH_SALT = "cambiami"
+ADMIN_TOKEN = "cambiami"

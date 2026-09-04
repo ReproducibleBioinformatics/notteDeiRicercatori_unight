@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="it">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>QR da stampare</title>
+    <link rel="stylesheet" href="/assets/style.css" />
+    <style>
+      .sheet {
+        min-height: 100dvh;
+        display: grid;
+        place-content: center;
+        justify-items: center;
+        gap: 26px;
+        padding: 40px;
+        text-align: center;
+      }
+      .sheet h1 {
+        font-family: var(--display);
+        font-weight: 800;
+        font-size: clamp(30px, 6vw, 60px);
+        line-height: 1;
+        letter-spacing: -0.02em;
+        margin: 0;
+        max-width: 14ch;
+      }
+      .sheet p {
+        color: var(--muted);
+        font-size: clamp(16px, 2vw, 22px);
+        margin: 0;
+        max-width: 34ch;
+        line-height: 1.5;
+      }
+      .sheet .code {
+        background: #fff;
+        padding: 26px;
+        border-radius: 18px;
+      }
+      .sheet .code svg {
+        width: min(62vw, 62vh);
+        height: auto;
+        display: block;
+      }
+      .sheet .url {
+        font-size: clamp(14px, 1.6vw, 20px);
+        color: var(--muted);
+      }
+      @media print {
+        html, body, .sheet { background: #fff !important; color: #000 !important; }
+        .sheet h1 { color: #000; }
+        .sheet p, .sheet .url { color: #444; }
+        .sheet .code { padding: 0; }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="sheet">
+      <h1>Dove finisci sulla mappa?</h1>
+      <p>Dieci domande, meno di un minuto. Poi guarda lo schermo.</p>
+      <div class="code" id="qr"></div>
+      <p class="url" id="url"></p>
+    </div>
+    <script type="module">
+      import qrcode from "/assets/qrcode.mjs";
+      const url = new URL("/quiz", location.origin).toString();
+      const qr = qrcode(0, "M");
+      qr.addData(url);
+      qr.make();
+      document.getElementById("qr").innerHTML = qr.createSvgTag({ cellSize: 8, margin: 1 });
+      document.getElementById("url").textContent = url.replace(/^https?:\/\//, "");
+    </script>
+  </body>
+</html>

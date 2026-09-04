@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="it">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>La mappa delle persone — Notte dei Ricercatori</title>
+    <meta name="description" content="Dieci domande, quaranta dimensioni, due assi. Rispondi e guarda dove finisci." />
+    <link rel="stylesheet" href="/assets/style.css" />
+  </head>
+  <body>
+    <main class="stage">
+      <canvas id="plot"></canvas>
+
+      <div class="overlay overlay-topleft">
+        <h1 class="stage-title">La mappa<br />delle persone</h1>
+        <p class="stage-sub">
+          Ogni puntino è qualcuno che ha risposto a dieci domande. Chi ha risposto in modo
+          simile finisce vicino.
+        </p>
+        <div class="mode">
+          <span class="mode-name" id="modeName">PCA</span>
+          <span class="mode-note" id="modeNote"></span>
+        </div>
+      </div>
+
+      <div class="overlay overlay-topright">
+        <span class="counter-value" id="counter">0</span>
+        <span class="counter-label">persone sulla mappa</span>
+      </div>
+
+      <div class="overlay overlay-bottomleft">
+        <div class="legend" id="legend"></div>
+      </div>
+
+      <div class="overlay overlay-bottomright">
+        <div class="qr-card">
+          <div id="qr"></div>
+          <p class="qr-caption">Inquadra e rispondi</p>
+        </div>
+        <p class="qr-url" id="qrUrl"></p>
+      </div>
+    </main>
+
+    <script type="module" src="/assets/display.js"></script>
+  </body>
+</html>
