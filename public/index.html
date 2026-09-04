@@ -2,42 +2,51 @@
 <html lang="it">
   <head>
     <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <title>La mappa delle persone — Notte dei Ricercatori</title>
     <meta name="description" content="Dieci domande, quaranta dimensioni, due assi. Rispondi e guarda dove finisci." />
+    <meta name="theme-color" content="#0b1030" />
     <link rel="stylesheet" href="/assets/style.css" />
   </head>
   <body>
     <main class="stage">
-      <canvas id="plot"></canvas>
-
-      <div class="overlay overlay-topleft">
-        <h1 class="stage-title">La mappa<br />delle persone</h1>
-        <p class="stage-sub">
-          Ogni puntino è qualcuno che ha risposto a dieci domande. Chi ha risposto in modo
-          simile finisce vicino.
-        </p>
-        <div class="mode">
-          <span class="mode-name" id="modeName">PCA</span>
-          <span class="mode-note" id="modeNote"></span>
+      <header class="panel panel-head">
+        <div class="head-text">
+          <h1 class="stage-title">La mappa delle persone</h1>
+          <p class="stage-sub">
+            Ogni puntino è qualcuno che ha risposto a dieci domande. Chi ha risposto in
+            modo simile finisce vicino.
+          </p>
         </div>
+        <div class="count">
+          <span class="count-value" id="counter">0</span>
+          <span class="count-label">persone<br />sulla mappa</span>
+        </div>
+      </header>
+
+      <div class="plot-wrap">
+        <canvas id="plot"></canvas>
+        <button class="ghost reset" id="btnReset" hidden>Vista intera</button>
       </div>
 
-      <div class="overlay overlay-topright">
-        <span class="counter-value" id="counter">0</span>
-        <span class="counter-label">persone sulla mappa</span>
+      <div class="panel panel-controls">
+        <div class="switch" role="group" aria-label="Tipo di proiezione">
+          <button type="button" class="switch-btn is-on" id="btnPca">PCA</button>
+          <button type="button" class="switch-btn" id="btnUmap">UMAP</button>
+        </div>
+        <p class="mode-note" id="modeNote"></p>
       </div>
 
-      <div class="overlay overlay-bottomleft">
+      <div class="panel panel-legend">
         <div class="legend" id="legend"></div>
       </div>
 
-      <div class="overlay overlay-bottomright">
+      <div class="panel panel-join">
         <div class="qr-card">
           <div id="qr"></div>
           <p class="qr-caption">Inquadra e rispondi</p>
         </div>
-        <p class="qr-url" id="qrUrl"></p>
+        <a class="join" href="/quiz">Rispondi anche tu</a>
       </div>
     </main>
 

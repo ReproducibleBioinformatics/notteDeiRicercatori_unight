@@ -1,13 +1,15 @@
 import qrcode from "/assets/qrcode.mjs";
 
-const POLL_MS = 2000;        // ogni quanto chiedere i punti nuovi
-const AUTO_SWITCH_MS = 45000; // ogni quanto passare da PCA a UMAP e viceversa
-const MORPH_MS = 1500;        // durata della transizione
-const HIGHLIGHT_MS = 20000;   // per quanto un arrivo resta evidenziato
-const NAME_COUNT = 10;        // quanti degli ultimi arrivati mostrano il nome
+const POLL_MS = 2000;       // ogni quanto chiedere i punti nuovi
+const MORPH_MS = 1500;      // durata della transizione fra PCA e UMAP
+const HIGHLIGHT_MS = 20000; // per quanto l'ultimo arrivato resta evidenziato
+const MAX_NAMES = 10;       // quanti nomi al massimo, fra quelli inquadrati
+const ZOOM_MIN = 1;
+const ZOOM_MAX = 14;
 
 const canvas = document.getElementById("plot");
 const ctx = canvas.getContext("2d");
+const wrap = canvas.parentElement;
 
 const state = {
   model: null,
@@ -18,41 +20,137 @@ const state = {
   morphFrom: 0,
   morphTo: 0,
   morphStart: -Infinity,
-  lastSwitch: Date.now(),
-  view: { w: 0, h: 0, cx: 0, cy: 0, scale: 1, dpr: 1 },
+  view: { w: 0, h: 0, cx: 0, cy: 0, scale: 1 },
+  cam: { k: 1, x: 0, y: 0 },
   firstLoad: true,
 };
 
 const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
-/* ---------------------------------------------------------------- setup */
+/* ----------------------------------------------------------- dimensionamento */
 
 function resize() {
   const dpr = Math.min(window.devicePixelRatio || 1, 2);
-  const w = window.innerWidth;
-  const h = window.innerHeight;
-  canvas.width = Math.round(w * dpr);
-  canvas.height = Math.round(h * dpr);
+  const w = wrap.clientWidth;
+  const h = wrap.clientHeight;
+  canvas.width = Math.max(1, Math.round(w * dpr));
+  canvas.height = Math.max(1, Math.round(h * dpr));
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  state.view = {
-    w,
-    h,
-    cx: w / 2,
-    cy: h / 2,
-    scale: Math.min(w, h) * 0.41,
-    dpr,
-  };
+  state.view = { w, h, cx: w / 2, cy: h / 2, scale: Math.min(w, h) * 0.41 };
+  clampCamera();
 }
 
-window.addEventListener("resize", resize);
+new ResizeObserver(resize).observe(wrap);
 resize();
 
+/* --------------------------------------------------------------- telecamera */
+
+// mondo -> schermo, passando per zoom e spostamento
 function project(x, y) {
   const v = state.view;
-  return [v.cx + x * v.scale, v.cy - y * v.scale];
+  const c = state.cam;
+  return [v.cx + x * v.scale * c.k + c.x, v.cy - y * v.scale * c.k + c.y];
 }
 
-/* --------------------------------------------------------------- morphing */
+function clampCamera() {
+  const c = state.cam;
+  c.k = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, c.k));
+  // la nuvola non può uscire completamente dallo schermo
+  const limX = state.view.scale * c.k * 1.15;
+  const limY = state.view.scale * c.k * 1.15;
+  c.x = Math.min(limX, Math.max(-limX, c.x));
+  c.y = Math.min(limY, Math.max(-limY, c.y));
+  const btn = document.getElementById("btnReset");
+  if (btn) btn.hidden = c.k <= 1.005 && Math.abs(c.x) < 1 && Math.abs(c.y) < 1;
+}
+
+// zoom tenendo fermo il punto sotto il dito o il cursore
+function zoomAt(sx, sy, factor) {
+  const c = state.cam;
+  const v = state.view;
+  const k2 = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, c.k * factor));
+  c.x = sx - v.cx - ((sx - v.cx - c.x) * k2) / c.k;
+  c.y = sy - v.cy - ((sy - v.cy - c.y) * k2) / c.k;
+  c.k = k2;
+  clampCamera();
+}
+
+function resetCamera() {
+  state.cam = { k: 1, x: 0, y: 0 };
+  clampCamera();
+}
+
+/* ------------------------------------------------- trascinamento e pizzicata */
+
+const pointers = new Map();
+let pinchDist = 0;
+let pinchMid = null;
+
+function localPoint(e) {
+  const r = canvas.getBoundingClientRect();
+  return { x: e.clientX - r.left, y: e.clientY - r.top };
+}
+
+canvas.addEventListener("pointerdown", (e) => {
+  canvas.setPointerCapture(e.pointerId);
+  pointers.set(e.pointerId, localPoint(e));
+  canvas.classList.add("dragging");
+  if (pointers.size === 2) {
+    const [a, b] = [...pointers.values()];
+    pinchDist = Math.hypot(a.x - b.x, a.y - b.y);
+    pinchMid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+  }
+});
+
+canvas.addEventListener("pointermove", (e) => {
+  if (!pointers.has(e.pointerId)) return;
+  const prev = pointers.get(e.pointerId);
+  const now = localPoint(e);
+  pointers.set(e.pointerId, now);
+
+  if (pointers.size === 1) {
+    state.cam.x += now.x - prev.x;
+    state.cam.y += now.y - prev.y;
+    clampCamera();
+  } else if (pointers.size === 2) {
+    const [a, b] = [...pointers.values()];
+    const dist = Math.hypot(a.x - b.x, a.y - b.y);
+    const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+    if (pinchDist > 0) {
+      state.cam.x += mid.x - pinchMid.x;
+      state.cam.y += mid.y - pinchMid.y;
+      zoomAt(mid.x, mid.y, dist / pinchDist);
+    }
+    pinchDist = dist;
+    pinchMid = mid;
+  }
+});
+
+function releasePointer(e) {
+  pointers.delete(e.pointerId);
+  if (pointers.size < 2) {
+    pinchDist = 0;
+    pinchMid = null;
+  }
+  if (pointers.size === 0) canvas.classList.remove("dragging");
+}
+
+canvas.addEventListener("pointerup", releasePointer);
+canvas.addEventListener("pointercancel", releasePointer);
+
+canvas.addEventListener(
+  "wheel",
+  (e) => {
+    e.preventDefault();
+    const p = localPoint(e);
+    zoomAt(p.x, p.y, Math.exp(-e.deltaY * 0.0016));
+  },
+  { passive: false }
+);
+
+canvas.addEventListener("dblclick", resetCamera);
+
+/* ---------------------------------------------------------------- proiezione */
 
 function easeInOut(t) {
   return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
@@ -62,8 +160,7 @@ function morphValue() {
   if (reduceMotion) return state.morphTo;
   const elapsed = Date.now() - state.morphStart;
   if (elapsed >= MORPH_MS) return state.morphTo;
-  const t = easeInOut(elapsed / MORPH_MS);
-  return state.morphFrom + (state.morphTo - state.morphFrom) * t;
+  return state.morphFrom + (state.morphTo - state.morphFrom) * easeInOut(elapsed / MORPH_MS);
 }
 
 function setMode(mode) {
@@ -72,25 +169,24 @@ function setMode(mode) {
   state.morphTo = mode === "umap" ? 1 : 0;
   state.morphStart = Date.now();
   state.mode = mode;
-  state.lastSwitch = Date.now();
-  updateModeText();
+  updateModeUi();
 }
 
-function updateModeText() {
+function updateModeUi() {
   const m = state.model;
-  const nameEl = document.getElementById("modeName");
-  const noteEl = document.getElementById("modeNote");
-  if (state.mode === "pca") {
+  const pca = state.mode === "pca";
+  document.getElementById("btnPca").classList.toggle("is-on", pca);
+  document.getElementById("btnUmap").classList.toggle("is-on", !pca);
+  const note = document.getElementById("modeNote");
+  if (pca) {
     const pct = m ? Math.round((m.explained[0] + m.explained[1]) * 100) : 0;
-    nameEl.textContent = "PCA";
-    noteEl.textContent = `le due direzioni che spiegano più differenze fra le persone (${pct}% del totale)`;
+    note.textContent = `Le due direzioni lungo cui le persone si differenziano di più. Tengono il ${pct}% delle differenze totali.`;
   } else {
-    nameEl.textContent = "UMAP";
-    noteEl.textContent = "conta solo chi ti somiglia di più: i gruppi si staccano";
+    note.textContent = "Conta solo chi ti somiglia di più: i gruppi si staccano.";
   }
 }
 
-/* --------------------------------------------------------------- disegno */
+/* ------------------------------------------------------------------ disegno */
 
 function withAlpha(hex, alpha) {
   const n = parseInt(hex.slice(1), 16);
@@ -105,14 +201,16 @@ function draw() {
 
   const t = morphValue();
   const now = Date.now();
+  const k = state.cam.k;
 
-  // nuvola di riferimento: la popolazione simulata su cui la mappa è stata costruita
+  // nuvola di riferimento: la popolazione simulata su cui la mappa è costruita
   const ref = m.ref;
-  const r = Math.max(1.6, v.scale * 0.0075);
+  const r = Math.max(1.5, v.scale * 0.0075 * Math.min(2.2, Math.sqrt(k)));
   for (let i = 0; i < ref.xy.length; i++) {
     const x = ref.xy[i][0] + (ref.uxy[i][0] - ref.xy[i][0]) * t;
     const y = ref.xy[i][1] + (ref.uxy[i][1] - ref.xy[i][1]) * t;
     const [px, py] = project(x, y);
+    if (px < -8 || px > v.w + 8 || py < -8 || py > v.h + 8) continue;
     ctx.fillStyle = withAlpha(m.clusters[ref.cluster[i]].color, 0.3);
     ctx.beginPath();
     ctx.arc(px, py, r, 0, Math.PI * 2);
@@ -120,26 +218,25 @@ function draw() {
   }
 
   // partecipanti
-  const pr = Math.max(4, v.scale * 0.016);
+  const pr = Math.max(4, v.scale * 0.016 * Math.min(1.8, Math.sqrt(k)));
+  const visibili = [];
 
-  // gli ultimi arrivati tengono il nome finché non li spingono fuori quelli dopo
-  const named = new Set(state.points.slice(-NAME_COUNT).map((p) => p.id));
-
-  const labels = [];
   for (const p of state.points) {
     const x = p.x + (p.ux - p.x) * t;
     const y = p.y + (p.uy - p.y) * t;
     const [px, py] = project(x, y);
+    if (px < -30 || px > v.w + 30 || py < -30 || py > v.h + 30) continue;
+
     const age = now - (p.arrivedAt || 0);
     const fresh = age < HIGHLIGHT_MS;
     const color = m.clusters[p.cluster].color;
 
     if (fresh && age < 1400 && !reduceMotion) {
-      const k = age / 1400;
-      ctx.strokeStyle = withAlpha(color, (1 - k) * 0.85);
+      const q = age / 1400;
+      ctx.strokeStyle = withAlpha(color, (1 - q) * 0.85);
       ctx.lineWidth = 2.5;
       ctx.beginPath();
-      ctx.arc(px, py, pr + k * v.scale * 0.13, 0, Math.PI * 2);
+      ctx.arc(px, py, pr + q * v.scale * 0.13, 0, Math.PI * 2);
       ctx.stroke();
     }
 
@@ -151,25 +248,21 @@ function draw() {
     ctx.strokeStyle = fresh ? "#edf0ff" : "rgba(11,16,48,0.85)";
     ctx.stroke();
 
-    if (named.has(p.id)) labels.push({ p, px, py, age, color, fresh });
+    visibili.push({ p, px, py, age, color, fresh });
   }
 
-  drawLabels(labels, pr);
-
-  if (!reduceMotion && now - state.lastSwitch > AUTO_SWITCH_MS) {
-    setMode(state.mode === "pca" ? "umap" : "pca");
-  }
+  // i nomi sono al massimo dieci, sempre i più recenti fra quelli inquadrati:
+  // zoomando su una zona compaiono quelli di lì, che altrimenti non si vedrebbero
+  visibili.sort((a, b) => b.p.id - a.p.id);
+  drawLabels(visibili.slice(0, MAX_NAMES), pr);
 
   requestAnimationFrame(draw);
 }
 
-/**
- * I nomi degli ultimi arrivati. Se due punti sono vicini le targhette si
- * accavallerebbero, quindi ognuna scivola in verticale finché trova posto.
- */
+/** Se due targhette si accavallano, quella meno recente scivola in verticale. */
 function drawLabels(labels, pr) {
   const v = state.view;
-  const fs = Math.max(15, v.scale * 0.055);
+  const fs = Math.max(14, Math.min(30, v.scale * 0.055));
   ctx.textAlign = "left";
   ctx.textBaseline = "middle";
   ctx.font = `700 ${fs}px "Bricolage Grotesque", sans-serif`;
@@ -177,12 +270,9 @@ function drawLabels(labels, pr) {
   const placed = [];
   const h = fs * 1.44;
 
-  // i più recenti si piazzano per primi e tengono il posto migliore
-  labels.sort((a, b) => a.age - b.age);
-
   for (const l of labels) {
     const w = ctx.measureText(l.p.name).width + fs * 0.6;
-    let x = Math.min(l.px + pr + fs * 0.45, v.w - w - 6);
+    const x = Math.max(4, Math.min(l.px + pr + fs * 0.45, v.w - w - 4));
     let y = l.py - h / 2;
 
     for (let attempt = 0; attempt < 14; attempt++) {
@@ -192,14 +282,14 @@ function drawLabels(labels, pr) {
       if (!hit) break;
       y = attempt % 2 === 0 ? hit.y + h + 3 : l.py - h / 2 - (attempt + 1) * (h + 3);
     }
-    y = Math.max(6, Math.min(v.h - h - 6, y));
+    y = Math.max(4, Math.min(v.h - h - 4, y));
     placed.push({ x, y, w, h });
 
     const fade = Math.min(1, l.age / 350);
-    ctx.fillStyle = `rgba(11, 16, 48, ${(l.fresh ? 0.82 : 0.62) * fade})`;
+    ctx.fillStyle = `rgba(11, 16, 48, ${(l.fresh ? 0.84 : 0.66) * fade})`;
     roundRect(x, y, w, h, fs * 0.36);
     ctx.fill();
-    ctx.fillStyle = withAlpha(l.color, (l.fresh ? 1 : 0.82) * fade);
+    ctx.fillStyle = withAlpha(l.color, (l.fresh ? 1 : 0.85) * fade);
     ctx.fillText(l.p.name, x + fs * 0.3, y + h / 2 + 1);
   }
 }
@@ -214,13 +304,12 @@ function roundRect(x, y, w, h, r) {
   ctx.closePath();
 }
 
-/* ------------------------------------------------------------------ dati */
+/* -------------------------------------------------------------------- dati */
 
 function renderLegend() {
-  const m = state.model;
   const el = document.getElementById("legend");
   el.innerHTML = "";
-  m.clusters.forEach((c) => {
+  state.model.clusters.forEach((c) => {
     const row = document.createElement("div");
     row.className = "legend-row";
     const dot = document.createElement("span");
@@ -255,15 +344,13 @@ async function poll() {
       for (const p of data.points) {
         if (state.byId.has(p.id)) continue;
         state.byId.add(p.id);
-        // al primo caricamento non evidenziamo tutti gli storici
-        p.arrivedAt = state.firstLoad ? 0 : now;
+        p.arrivedAt = state.firstLoad ? 0 : now; // al primo giro non si evidenzia lo storico
         state.points.push(p);
         state.lastId = Math.max(state.lastId, p.id);
       }
       state.firstLoad = false;
       updateCounts();
-      // pagina piena: ci sono altri punti da recuperare, non aspettare
-      if (data.more) return poll();
+      if (data.more) return poll(); // pagina piena: ce ne sono altri, non aspettare
     }
   } catch {
     /* rete ballerina alla serata: si riprova al giro dopo */
@@ -271,7 +358,7 @@ async function poll() {
   setTimeout(poll, POLL_MS);
 }
 
-/* -------------------------------------------------------------------- QR */
+/* ---------------------------------------------------------------------- QR */
 
 function renderQr() {
   const url = new URL("/quiz", window.location.origin).toString();
@@ -279,30 +366,33 @@ function renderQr() {
   qr.addData(url);
   qr.make();
   document.getElementById("qr").innerHTML = qr.createSvgTag({ cellSize: 6, margin: 0 });
-  document.getElementById("qrUrl").textContent = url.replace(/^https?:\/\//, "");
 }
 
-/* ------------------------------------------------------------------ avvio */
+/* -------------------------------------------------------------------- avvio */
+
+document.getElementById("btnPca").onclick = () => setMode("pca");
+document.getElementById("btnUmap").onclick = () => setMode("umap");
+document.getElementById("btnReset").onclick = resetCamera;
 
 window.addEventListener("keydown", (e) => {
   const k = e.key.toLowerCase();
   if (k === "p") setMode("pca");
   if (k === "u") setMode("umap");
+  if (k === "0") resetCamera();
+  if (k === "f") document.documentElement.requestFullscreen?.();
   if (k === " ") {
     e.preventDefault();
     setMode(state.mode === "pca" ? "umap" : "pca");
   }
-  if (k === "f") document.documentElement.requestFullscreen?.();
 });
-
-canvas.addEventListener("click", () => setMode(state.mode === "pca" ? "umap" : "pca"));
 
 (async function init() {
   renderQr();
+  updateModeUi();
   const res = await fetch("/api/model");
   state.model = await res.json();
   renderLegend();
-  updateModeText();
+  updateModeUi();
   poll();
   requestAnimationFrame(draw);
 })();
