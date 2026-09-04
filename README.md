@@ -1,297 +1,178 @@
-# La mappa delle persone
-
-Installazione interattiva per la Notte dei Ricercatori: le persone rispondono a dieci
-domande dal telefono, ogni set di risposte diventa un punto su una mappa proiettata, e la
-mappa passa avanti e indietro fra PCA e UMAP per far vedere che sono due modi diversi di
-guardare gli stessi dati.
-
-![PCA e UMAP a confronto](docs/anteprima.png)
-
-Tre pagine:
-
-| Indirizzo | A cosa serve |
-|---|---|
-| `/` | lo schermo grande: mappa, QR code, contatore, legenda |
-| `/quiz` | quello che si apre inquadrando il QR |
-| `/qr` | un QR gigante da stampare per il banchetto |
-
+The map of people
+An interactive installation built for European Researchers' Night at the Molecular
+Biotechnology Center, University of Turin.
+Visitors answer ten multiple-choice questions on their phone. Their answers become a point
+on a map projected on a big screen, next to everyone else who answered that evening. The
+map alternates between a PCA and a UMAP view of the same data, which is the whole point:
+two projections of the same forty-dimensional space that tell you different things.
+It is a dimensionality-reduction lesson where the data points are the audience.
+![PCA and UMAP side by side](docs/anteprima.png)
 ---
-
-## Come fa a non muoversi la mappa
-
-Il nodo del progetto è questo: se ricalcolassi la PCA a ogni nuovo arrivo, tutti i punti
-si sposterebbero e i colori dei cluster ballerebbero. Quindi non si ricalcola niente.
-
-`tools/build_model.py` genera **una volta sola** una popolazione sintetica di 1200
-risposte, costruite a partire da sei archetipi. Su quella popolazione calcola:
-
-- la **PCA**: media e loadings, cioè una matrice fissa 8×40;
-- l'**UMAP** dei 1200 punti di riferimento;
-- i **centroidi** dei sei cluster nello spazio delle componenti principali.
-
-Tutto finisce in `shared/model.js`. A serata iniziata il server non fa nessun fit:
-
-- le 10 risposte diventano un vettore one-hot di 40 numeri;
-- lo moltiplica per i loadings già calcolati → coordinate PCA, deterministiche;
-- lo assegna al centroide più vicino → colore del cluster, sempre lo stesso;
-- per l'UMAP, che non è una trasformazione invertibile, mette il punto nella media pesata
-  delle coordinate dei suoi 15 vicini di riferimento.
-
-Conseguenza pratica: **finché non rigeneri `shared/model.js`, la mappa e i sei colori sono
-identici dal primo all'ultimo visitatore.** Se un giorno cambi le domande e rilanci lo
-script, la mappa cambia — quindi fallo prima dell'evento, non durante.
-
-La nuvola di sfondo che si vede sullo schermo sono proprio i 1200 punti sintetici: servono
-a dare forma alla mappa quando ci sono ancora poche persone vere, così alle 21:00 lo schermo
-non è vuoto.
-
+What actually happens
+Ten questions, four options each. One-hot encoded, that is forty binary features: one slot
+per possible answer, set to 1 if you picked it. Nobody can draw forty dimensions, so we go
+down to two, twice, in two different ways.
+PCA finds the two directions along which people differ the most and projects everyone
+onto them, like the shadow of an object on a wall. It is a linear map, faithful to large
+distances, and it flattens everything else. On this data the first two components carry
+about 18% of the variance — low, and that is exactly why the PCA view looks like one big
+smudge with gradients rather than separate groups.
+UMAP optimises for something else: keep near neighbours near. Distances between groups
+stop meaning much, but the groups themselves come apart into islands.
+Put those two views next to each other and the trade-off explains itself without a single
+equation. The bridge to what the lab actually does is one sentence long: replace the ten
+questions with twenty thousand genes and the person with a cell, and this is a single-cell
+RNA-seq embedding.
 ---
-
-## Cosa ti serve
-
-- un account GitHub;
-- un account Cloudflare (il piano gratuito basta e avanza, vedi *Costi* in fondo);
-- Node.js 18+ sul tuo computer, solo per i comandi di setup;
-- Python 3 con `numpy` e `umap-learn`, solo se vuoi cambiare le domande.
-
+The hard part: a map that holds still
+The obvious implementation refits the projection every time somebody answers. It does not
+work. Every point jumps, the cluster colours reshuffle, and the visitor who answered two
+minutes ago is somewhere else now. The illusion of "here is where you belong" dies
+immediately.
+So nothing is ever refitted. `tools/build_model.py` runs once, offline and freezes a
+map:
+It generates a synthetic reference population of 1200 respondents, drawn from six
+archetypes with a fixed random seed.
+It runs PCA on that population and keeps the mean vector and the loadings — an 8×40
+matrix.
+It runs UMAP on the principal component scores and keeps the 2D coordinates of all 1200
+reference points.
+It computes the six cluster centroids in PC space.
+All of it goes into `shared/model.js`. At runtime the server only does arithmetic:
+answers → one-hot vector of 40 numbers;
+subtract the stored mean, multiply by the stored loadings → PCA coordinates, fully
+deterministic;
+nearest stored centroid → cluster id, and therefore colour;
+for UMAP, which has no closed-form transform, place the new point at the weighted average
+of the UMAP coordinates of its 15 nearest reference points.
+The consequence is the property the installation needs: as long as `shared/model.js` is
+unchanged, the map and the six colours are identical for the first visitor and the four
+hundredth. Two people who answer identically land on the same spot, every time, by
+construction rather than by luck.
+The reference cloud stays visible on screen as a faint background. It gives the map its
+shape when only a handful of real people have answered, so the screen is never empty.
+Regenerating the model invalidates everything stored before it — the saved coordinates
+refer to a map that no longer exists. The deploy script detects this and offers to wipe the
+database.
+The questions are not a personality test
+They are a device for producing separable clusters out of a crowd, and they are throwaway:
+morning routine, ideal weekend, how you tackle a problem, state of your desk, music,
+holidays, dinner, public speaking, superpower, dream experiment.
+The six archetypes — Explorers, Architects, Contemplatives, Creative mess, Social magnets,
+Serial curious — are defined by a preferred option per question plus a purity parameter
+controlling how consistently they follow it. Sampling from them produces genuine cluster
+structure rather than a uniform blob, which is what makes the PCA-versus-UMAP contrast
+legible on a screen from five metres away.
+Nearest-centroid assignment currently recovers the true archetype for 92% of the reference
+population. Below roughly 85% the clusters overlap too much to read at a distance.
 ---
-
-## Passo 1 — Metti il codice su GitHub
-
-Dalla cartella del progetto:
-
-```bash
-git init
-git add .
-git commit -m "Mappa Notte dei Ricercatori"
-git branch -M main
-git remote add origin https://github.com/TUO-UTENTE/notte-ricercatori-mappa.git
-git push -u origin main
+Architecture
+Cloudflare Pages for the static pages, Pages Functions for the API, D1 for the evening's
+participant list. No build step, no framework, no bundler — the pages are plain HTML and
+ES modules, the plot is a canvas.
+Route	What it is
+`/`	the projected screen: map, QR code, counter, legend
+`/quiz`	what opens when you scan the QR
+`/qr`	an oversized QR to print for the table
+`/api/questions`	the ten questions
+`/api/model`	the reference cloud and the legend, for the display
+`/api/submit`	answers in, coordinates out, row written
+`/api/points?since=N`	everything newer than id N
+`/api/reset`	wipes the table, admin token required
 ```
-
-Il repo può essere privato, Cloudflare ci accede lo stesso.
-
-## Passo 2 — Crea il database
-
-Il database serve solo a tenere l'elenco delle persone della serata.
-
+public/            what the browser gets
+  index.html         big screen
+  quiz.html          phone
+  qr.html            printable QR
+  assets/            css, display and quiz logic, QR library
+functions/api/       the endpoints above
+shared/
+  model.js           GENERATED: loadings, UMAP reference, centroids
+  questions.js       GENERATED: the questions
+  project.js         new answers -> coordinates, no fitting
+  http.js            JSON replies, name sanitising, IP hashing
+tools/
+  build_model.py     the script that generates the two GENERATED files
+schema.sql           the D1 table
+wrangler.toml        Cloudflare config
+deploy.ps1           publish (Windows)
+```
+The display polls `/api/points` every two seconds asking only for rows newer than the
+highest id it already has, so the query usually reads zero rows and the cost stays flat as
+the evening fills up. The last ten arrivals keep their name drawn on the map; labels that
+would collide slide vertically until they find room. The newest one also gets a pulsing
+ring for twenty seconds.
+On screen
+`P` for PCA, `U` for UMAP, space to toggle, `F` for fullscreen, click anywhere to switch.
+Left alone it alternates every 45 seconds with a 1.5 s eased morph, which is the moment
+worth watching: the same points sliding from one projection to the other.
+---
+Running it
+Needs a Cloudflare account (free tier is enough), Node 18+, and — only if you want to
+change the questions — Python with `numpy` and `umap-learn`.
 ```bash
 npm install
-npx wrangler login          # apre il browser per autorizzare
-npx wrangler d1 create notte-ricercatori
+npx wrangler login
+npx wrangler d1 create notte-ricercatori     # put the printed id in wrangler.toml
+npm run db:remote                            # create the table
+npx wrangler pages project create <project-name>
+npx wrangler pages deploy
 ```
-
-L'ultimo comando stampa un blocco che contiene `database_id = "..."`. **Copia quell'id
-dentro `wrangler.toml`**, al posto di `METTI-QUI-IL-TUO-DATABASE-ID`.
-
-Poi crea la tabella, sia in locale che sul database vero:
-
+`name` in `wrangler.toml` must match the Pages project name exactly, lowercase with dashes.
+Two variables want real values, set as secrets rather than committed:
 ```bash
-npm run db:local
-npm run db:remote
+npx wrangler pages secret put HASH_SALT      # salts the IP hashes used for rate limiting
+npx wrangler pages secret put ADMIN_TOKEN    # guards /api/reset
 ```
-
-Ricommitta `wrangler.toml` con l'id dentro:
-
-```bash
-git add wrangler.toml && git commit -m "database id" && git push
+`npm run dev` runs the whole thing locally against a local D1 file. The QR will encode
+`localhost`, which your phone cannot reach — bind to your LAN address
+(`wrangler pages dev --ip 0.0.0.0`) and open the display at that IP if you want to test the
+scan.
+deploy.ps1
+One command instead of four, for Windows.
+```powershell
+.\deploy.ps1 "message"                # commit, push, deploy
+.\deploy.ps1 "new questions" -Modello # regenerate the model first
+.\deploy.ps1 -SoloDeploy              # publish without touching git
+.\deploy.ps1 -Svuota                  # clear participants
 ```
-
-## Passo 3 — Prova tutto in locale
-
-```bash
-npm run dev
-```
-
-Apri `http://localhost:8788` (lo schermo) e `http://localhost:8788/quiz` in un'altra
-finestra. Rispondi al quiz: entro due secondi il punto deve comparire sull'altra pagina.
-Se funziona qui, funziona anche online.
-
-## Passo 4 — Collega Cloudflare a GitHub
-
-Nella dashboard di Cloudflare: **Workers & Pages → Create → Pages → Connect to Git**.
-
-- scegli il repository;
-- **Build command**: lascialo vuoto, non c'è niente da compilare;
-- **Build output directory**: `public`.
-
-Salva e fai partire il deploy. Alla fine hai un indirizzo tipo
-`https://notte-ricercatori-mappa.pages.dev`.
-
-Il binding del database lo legge da `wrangler.toml`, quindi se hai messo l'id giusto al
-Passo 2 non devi configurare nient'altro.
-
-## Passo 5 — Cambia le due variabili
-
-In `wrangler.toml` c'è:
-
-```toml
-[vars]
-HASH_SALT = "cambiami"
-ADMIN_TOKEN = "cambiami"
-```
-
-`HASH_SALT` serve a rendere non ricostruibili gli hash degli IP usati per il rate limit.
-`ADMIN_TOKEN` protegge l'endpoint che svuota la mappa. Mettici due stringhe lunghe a caso.
-
-Se il repository è pubblico e la cosa ti dà fastidio, togli l'intero blocco `[vars]` e usa
-i secret:
-
-```bash
-npx wrangler pages secret put HASH_SALT
-npx wrangler pages secret put ADMIN_TOKEN
-```
-
-## Passo 6 — Prova online
-
-Apri `https://IL-TUO-SITO.pages.dev/quiz` dal telefono, rispondi, e guarda comparire il
-punto sullo schermo. Fatto.
-
+It reads the project and database names out of `wrangler.toml`, so there is nothing to
+configure. With `-Modello` it hashes `shared/model.js` before and after regenerating: if the
+map actually changed it says so and offers to wipe the database, because leaving old rows
+around would scatter people across coordinates that no longer mean anything.
+Note that pushing to GitHub does not deploy by itself. This project is published directly
+with `wrangler pages deploy`; wiring Pages to the repository for automatic builds works too,
+as long as the Pages project is created from the Pages tab rather than the Workers one.
 ---
-
-## La sera dell'evento
-
-- Apri `/` sul portatile collegato al proiettore e premi **F** per il fullscreen.
-- La mappa alterna PCA e UMAP da sola ogni 45 secondi. Se vuoi guidarla a mano:
-  **P** per PCA, **U** per UMAP, **barra spaziatrice** per alternare, oppure un click.
-- Il QR in basso a destra funziona da vicino. Da lontano no: stampa `/qr` su un A4 e mettine
-  qualche copia in giro sul tavolo.
-- L'ultimo arrivato resta evidenziato col nome per 20 secondi. Se arrivano in gruppo, i nomi
-  mostrati sono al massimo tre alla volta, altrimenti diventa illeggibile.
-- La pagina si riprende da sola se la rete cade per qualche secondo: continua a chiedere i
-  punti nuovi ogni due secondi e li recupera quando torna.
-- Se qualcuno mette un nome sconveniente, i termini più ovvi diventano "Anonimo" in
-  automatico; per il resto puoi svuotare tutto (vedi sotto).
-
-### Le tre cose da raccontare al pubblico
-
-1. *Le tue dieci risposte non sono dieci numeri, sono quaranta*: una casella per ogni
-   opzione possibile. Quaranta dimensioni non si disegnano su uno schermo.
-2. *La PCA cerca le due direzioni lungo cui le persone si differenziano di più.* Sullo
-   schermo, in modalità PCA, ai bordi compaiono le risposte che tirano di più ogni asse.
-   Con questi dati le prime due componenti spiegano circa il 18% della variabilità: è poco,
-   ed è il motivo per cui la nuvola sembra una macchia unica.
-3. *La UMAP fa un'altra scelta*: le importa solo tenere vicino chi è vicino. Le distanze fra
-   i gruppi contano meno, ma i gruppi si staccano. Stessi dati, due letture diverse.
-
-E il ponte con quello che facciamo davvero: al posto delle dieci domande ci sono ventimila
-geni, e al posto della persona una cellula.
-
----
-
-## Svuotare la mappa
-
-Fra una sessione e l'altra, o per fare una prova pulita:
-
-```bash
-curl -X POST https://IL-TUO-SITO.pages.dev/api/reset \
-     -H "x-admin-token: IL-TUO-ADMIN-TOKEN"
-```
-
-Per portarti a casa i dati della serata prima di cancellarli:
-
-```bash
-npx wrangler d1 execute notte-ricercatori --remote \
-  --command "SELECT id, name, answers, cluster, x, y, ux, uy FROM participants" --json \
-  > serata.json
-```
-
----
-
-## Cambiare le domande o gli archetipi
-
-Tutto sta in `tools/build_model.py`: la lista `QUESTIONS` e la lista `ARCHETYPES`.
-
-Per ogni archetipo, `pref` è l'indice dell'opzione preferita in ciascuna delle dieci
-domande, e `purity` (fra 0 e 1) dice quanto quell'archetipo è coerente: alzandola i cluster
-si separano di più, abbassandola si mescolano.
-
+Changing the questions
+Everything is in `tools/build_model.py`: the `QUESTIONS` list and the `ARCHETYPES` list.
+For each archetype, `pref` holds one zero-based option index per question — the answer that
+archetype typically gives — and `purity` (0 to 1) is how often it actually gives it. Raise
+purity and the clusters separate further; lower it and they blend. The number of entries in
+every `pref` must equal the number of questions, and each index must be valid for its
+question.
 ```bash
 pip install -r tools/requirements.txt
 python3 tools/build_model.py
 ```
-
-Lo script stampa due numeri che vale la pena guardare: la varianza spiegata dalle prime due
-componenti, e la percentuale di punti di riferimento che finiscono nel cluster giusto
-assegnandoli al centroide più vicino (adesso è 92%; sotto l'85% i cluster sono troppo
-sovrapposti e sullo schermo si legge male).
-
-Poi commit, push, e Cloudflare ridispiega da solo. **Ricordati di svuotare il database**:
-i punti salvati con il modello vecchio si riferiscono a una mappa che non esiste più.
-
-Puoi cambiare il numero di domande e il numero di opzioni per domanda: il resto del codice
-si adatta. Se cambi il numero di archetipi, aggiungi anche un colore nuovo (il campo
-`color`) — la legenda e il display li leggono da lì.
-
+The script prints the variance explained by the first two components and the
+nearest-centroid recovery rate. Watch the second one. Then redeploy and wipe the database.
+Question count and options per question are both free to change; the rest of the code reads
+the shape from the model. Adding a seventh archetype means adding a seventh `color`, which
+the legend and the plot both read from there.
 ---
-
-## Costi e limiti
-
-Tutto sul piano gratuito di Cloudflare:
-
-- **Pages**: richieste illimitate sui file statici, 500 build al mese.
-- **Functions (Workers)**: 100.000 richieste al giorno. Lo schermo ne consuma circa 43.000
-  in 24 ore se lo lasci acceso (una ogni 2 secondi), più una manciata per ogni persona che
-  risponde. Con un solo schermo acceso per una serata sei a un decimo del limite.
-- **D1**: 5 milioni di righe lette al giorno. La query del display chiede solo i punti
-  *nuovi*, quindi legge quasi sempre zero righe.
-
-Se accendi **più di un display contemporaneamente**, moltiplica le 43.000 richieste per il
-numero di schermi. Con tre schermi accesi tutto il giorno arrivi al limite: in quel caso
-alza `POLL_MS` in `public/assets/display.js` da 2000 a 4000 e sei di nuovo tranquillo.
-
+Cost and privacy
+Everything sits inside Cloudflare's free tier. The screen consumes roughly 43,000 Function
+requests per 24 hours of continuous polling against a 100,000/day allowance, plus a handful
+per participant. Multiple simultaneous displays multiply that — raise `POLL_MS` in
+`display.js` if you run three of them all day.
+Stored per participant: the name they typed, which can be anything, their ten answers,
+their coordinates, and a truncated salted hash of their IP used solely to rate-limit one
+submission per twelve seconds. No cookies, no analytics, no third-party requests beyond the
+webfonts. Run the reset at the end of the night and nothing remains.
+The questions and the interface are in Italian, since that is the audience they were
+written for.
 ---
-
-## Privacy
-
-Si salva il nome che la persona scrive (può essere di fantasia), le dieci risposte e un
-hash troncato dell'indirizzo IP, che serve solo a impedire a un dispositivo di inviare
-cinquanta risposte di fila. Nessun cookie, nessun tracker, nessuna analytics. Alla fine
-della serata lancia il reset e non resta niente.
-
----
-
-## Struttura dei file
-
-```
-public/            quello che vede il browser
-  index.html         schermo grande
-  quiz.html          quiz sul telefono
-  qr.html            QR da stampare
-  assets/            css, js, libreria QR
-functions/api/     endpoint serverless (Cloudflare Pages Functions)
-  questions.js       GET  le dieci domande
-  model.js           GET  la nuvola di riferimento per il display
-  submit.js          POST risposte -> coordinate -> database
-  points.js          GET  i punti nuovi dall'id indicato in poi
-  reset.js           POST svuota tutto (serve il token)
-shared/            codice usato dagli endpoint
-  model.js           GENERATO: PCA, UMAP, centroidi
-  questions.js       GENERATO: le domande
-  project.js         proiezione di un nuovo punto
-  http.js            risposte JSON, pulizia del nome, hash IP
-tools/
-  build_model.py     lo script che genera i due file GENERATO
-schema.sql         la tabella D1
-wrangler.toml      configurazione Cloudflare
-```
-
-## Problemi frequenti
-
-**"Database non raggiungibile. Controlla il binding DB."** — il `database_id` in
-`wrangler.toml` è sbagliato o non hai lanciato `npm run db:remote`.
-
-**Il quiz funziona ma il punto non compare sullo schermo** — la pagina del display prende
-solo i punti con id maggiore dell'ultimo che conosce. Ricarica la pagina; se ancora niente,
-apri `/api/points?since=0` nel browser e guarda cosa risponde.
-
-**Le domande non si caricano sul telefono** — quasi sempre è il wifi del posto. Il quiz
-sono ~50 KB, ma se la rete è satura conviene dire alla gente di usare i propri dati.
-
-**Il deploy va a buon fine ma vedo una pagina bianca** — la *Build output directory* non è
-impostata su `public`.
-
----
-
-Libreria QR: [qrcode-generator](https://github.com/kazuhikoarase/qrcode-generator) di
-Kazuhiko Arase, licenza MIT.
+Built at the Molecular Biotechnology Center, University of
+Turin. QR encoding by
+qrcode-generator, MIT.
