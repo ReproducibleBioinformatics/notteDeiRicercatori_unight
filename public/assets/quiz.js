@@ -217,6 +217,9 @@ function renderResult() {
         ventimila geni, e al posto tuo una cellula.
       </p>
     </div>
+    <div class="quiz-foot">
+      <a class="join" href="/">Guarda la mappa</a>
+    </div>
   `);
   drawMini();
 }
