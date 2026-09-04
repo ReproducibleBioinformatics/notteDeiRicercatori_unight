@@ -1,5 +1,6 @@
 import { projectAnswers } from "../../shared/project.js";
 import { QUESTIONS } from "../../shared/questions.js";
+import { ANIMALS } from "../../shared/animals.js";
 import { MODEL } from "../../shared/model.js";
 import { json, fail, cleanName, hashIp } from "../../shared/http.js";
 
@@ -27,6 +28,11 @@ export async function onRequestPost({ request, env }) {
     }
   }
 
+  const animal = Number(body?.animal);
+  if (!Number.isInteger(animal) || animal < 0 || animal >= ANIMALS.length) {
+    return fail(400, "Scegli un animale.");
+  }
+
   const ip = request.headers.get("cf-connecting-ip") || "";
   const ipHash = await hashIp(ip, env.HASH_SALT);
   const now = Date.now();
@@ -46,16 +52,16 @@ export async function onRequestPost({ request, env }) {
   const p = projectAnswers(answers, seed);
 
   const row = await env.DB.prepare(
-    `INSERT INTO participants (name, answers, cluster, x, y, ux, uy, ip_hash, created_at)
-     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
+    `INSERT INTO participants (name, answers, cluster, animal, x, y, ux, uy, ip_hash, created_at)
+     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
      RETURNING id`
   )
-    .bind(name, JSON.stringify(answers), p.cluster, p.x, p.y, p.ux, p.uy, ipHash, now)
+    .bind(name, JSON.stringify(answers), p.cluster, animal, p.x, p.y, p.ux, p.uy, ipHash, now)
     .first();
 
   const cluster = MODEL.clusters[p.cluster];
   const twins = await env.DB.prepare(
-    `SELECT name FROM participants
+    `SELECT id, name, animal FROM participants
      WHERE cluster = ?1 AND id != ?2
      ORDER BY (x - ?3) * (x - ?3) + (y - ?4) * (y - ?4)
      LIMIT 3`
@@ -66,6 +72,7 @@ export async function onRequestPost({ request, env }) {
   return json({
     id: row.id,
     name,
+    animal,
     x: p.x,
     y: p.y,
     ux: p.ux,
@@ -74,6 +81,6 @@ export async function onRequestPost({ request, env }) {
     clusterName: cluster.name,
     clusterBlurb: cluster.blurb,
     clusterColor: cluster.color,
-    twins: (twins.results || []).map((t) => t.name),
+    twins: (twins.results || []).map((t) => ({ id: t.id, name: t.name, animal: t.animal })),
   });
 }

@@ -286,7 +286,8 @@ function drawLabels(labels, pr) {
     !placed.some((q) => x < q.x + q.w && x + w > q.x && y < q.y + q.h && y + h > q.y);
 
   for (const l of labels) {
-    const w = ctx.measureText(l.p.name).width + fs * 0.6;
+    const testo = etichetta(l.p);
+    const w = ctx.measureText(testo).width + fs * 0.6;
     const dx = pr + gap;
 
     // prima i quattro lati, poi scostamenti verticali sempre piu' ampi
@@ -327,8 +328,14 @@ function drawLabels(labels, pr) {
     roundRect(x, y, w, h, fs * 0.36);
     ctx.fill();
     ctx.fillStyle = withAlpha(l.color, (l.fresh ? 1 : 0.85) * fade);
-    ctx.fillText(l.p.name, x + fs * 0.3, cy + 1);
+    ctx.fillText(testo, x + fs * 0.3, cy + 1);
   }
+}
+
+/** Sulla mappa: emoji e nome. Il numero sta sulla spilla, qui non servirebbe a nulla. */
+function etichetta(p) {
+  const a = state.model.animals?.[p.animal];
+  return a ? `${a.emoji} ${p.name}` : p.name;
 }
 
 function roundRect(x, y, w, h, r) {

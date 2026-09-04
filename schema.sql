@@ -4,9 +4,10 @@ CREATE TABLE IF NOT EXISTS participants (
   name       TEXT    NOT NULL,
   answers    TEXT    NOT NULL,   -- JSON: indici delle opzioni scelte
   cluster    INTEGER NOT NULL,
-  x          REAL    NOT NULL,   -- coordinate PCA
+  animal     INTEGER NOT NULL DEFAULT 0,   -- indice in shared/animals.js
+  x          REAL    NOT NULL,   -- PCA 2D
   y          REAL    NOT NULL,
-  ux         REAL    NOT NULL,   -- coordinate UMAP
+  ux         REAL    NOT NULL,   -- UMAP 2D
   uy         REAL    NOT NULL,
   ip_hash    TEXT,               -- hash troncato, solo per il rate limit
   created_at INTEGER NOT NULL

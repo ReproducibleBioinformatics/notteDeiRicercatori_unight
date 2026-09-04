@@ -2,6 +2,8 @@ const app = document.getElementById("app");
 
 const state = {
   questions: [],
+  animals: [],
+  animal: null,
   answers: [],
   step: -1, // -1 introduzione, 0..n-1 domande, n nome
   name: "",
@@ -19,6 +21,7 @@ async function boot() {
     const res = await fetch("/api/questions");
     const data = await res.json();
     state.questions = data.questions;
+    state.animals = data.animals || [];
     state.answers = new Array(data.questions.length).fill(null);
     render();
   } catch {
@@ -127,6 +130,18 @@ function renderName() {
       <input id="name" type="text" maxlength="22" autocomplete="off"
              autocapitalize="words" placeholder="Es. Giulia" value="${state.name}" />
     </div>
+    <div class="field">
+      <label>E il tuo animale, quello che finisce sulla spilla</label>
+      <div class="animals">
+        ${state.animals
+          .map(
+            (a, i) =>
+              `<button type="button" class="animal ${state.animal === i ? "picked" : ""}"
+                       data-a="${i}" title="${a.name}"><span>${a.emoji}</span></button>`
+          )
+          .join("")}
+      </div>
+    </div>
     <button class="primary" id="send" ${state.sending ? "disabled" : ""}>
       ${state.sending ? "Ti sto mettendo sulla mappa…" : "Mettimi sulla mappa"}
     </button>
@@ -138,6 +153,14 @@ function renderName() {
       <button class="back" id="back">← torna alle domande</button>
     </div>
   `);
+
+  app.querySelectorAll(".animal").forEach((b) => {
+    b.onclick = () => {
+      state.animal = Number(b.dataset.a);
+      app.querySelectorAll(".animal").forEach((x) => x.classList.remove("picked"));
+      b.classList.add("picked");
+    };
+  });
 
   const input = document.getElementById("name");
   input.oninput = () => (state.name = input.value);
@@ -159,6 +182,10 @@ async function submit() {
     state.error = "Scrivi un nome, anche inventato.";
     return render();
   }
+  if (state.animal === null) {
+    state.error = "Scegli anche un animale.";
+    return render();
+  }
   state.sending = true;
   state.error = "";
   render();
@@ -167,7 +194,7 @@ async function submit() {
     const res = await fetch("/api/submit", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ name, answers: state.answers }),
+      body: JSON.stringify({ name, animal: state.animal, answers: state.answers }),
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || "Qualcosa non ha funzionato.");
@@ -184,15 +211,17 @@ async function submit() {
 function renderResult() {
   const r = state.result;
   const twins = r.twins || [];
+  const segno = (t) => `${state.animals[t.animal]?.emoji || ""} ${t.name} #${t.id}`;
   el(`
     <p class="step-index">Ci sei, guarda lo schermo</p>
+    <p class="badge">${state.animals[r.animal]?.emoji || ""} ${escapeHtml(r.name)} · #${r.id}</p>
     <p class="result-cluster" style="color:${r.clusterColor}">${r.clusterName}</p>
     <p class="result-blurb">${r.clusterBlurb}</p>
     <canvas class="mini" id="mini" width="620" height="620"></canvas>
     <p class="mini-caption">
       Il punto grande sei tu.${
         twins.length
-          ? ` Le persone che stasera ti somigliano di più: ${twins.join(", ")}.`
+          ? ` Chi ti somiglia di più stasera: ${twins.map(segno).join(", ")}. Cerca le loro spille.`
           : " Per ora sei fra i primi: torna a guardare fra un po'."
       }
     </p>
@@ -222,6 +251,10 @@ function renderResult() {
     </div>
   `);
   drawMini();
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 }
 
 function drawMini() {

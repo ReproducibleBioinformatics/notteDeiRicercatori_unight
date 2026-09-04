@@ -2,7 +2,7 @@
 // Il token resta nella sessione del browser, non viene mai salvato su disco.
 
 const app = document.getElementById("app");
-const state = { token: sessionStorage.getItem("adminToken") || "", punti: [], clusters: [], filtro: "", errore: "" };
+const state = { animals: [], token: sessionStorage.getItem("adminToken") || "", punti: [], clusters: [], filtro: "", errore: "" };
 
 async function carica() {
   const [modello, punti] = await Promise.all([
@@ -10,6 +10,7 @@ async function carica() {
     tuttiIPunti(),
   ]);
   state.clusters = modello.clusters;
+  state.animals = modello.animals || [];
   state.punti = punti.sort((a, b) => b.id - a.id); // dal piu' recente
   render();
 }
@@ -62,7 +63,7 @@ function render() {
               return `
                 <div class="row" data-id="${p.id}">
                   <span class="dot" style="background:${c ? c.color : "#888"}"></span>
-                  <span class="nome">${escape(p.name)}</span>
+                  <span class="nome">${state.animals[p.animal]?.emoji || ""} ${escape(p.name)} <span class="meta">#${p.id}</span></span>
                   <span class="meta">${ora(p.created_at)}</span>
                   <button data-del="${p.id}">Togli</button>
                 </div>`;

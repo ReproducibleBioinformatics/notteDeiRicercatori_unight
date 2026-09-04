@@ -12,7 +12,7 @@ export async function onRequestGet({ request, env }) {
 
   try {
     const { results } = await env.DB.prepare(
-      `SELECT id, name, cluster, x, y, ux, uy, created_at
+      `SELECT id, name, cluster, animal, x, y, ux, uy, created_at
        FROM participants WHERE id > ?1 ORDER BY id ASC LIMIT ${PAGE}`
     )
       .bind(since)
