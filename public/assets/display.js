@@ -14,7 +14,6 @@ const state = {
   points: [],
   byId: new Set(),
   lastId: 0,
-  total: 0,
   mode: "pca",
   morphFrom: 0,
   morphTo: 0,
@@ -244,7 +243,7 @@ function updateCounts() {
   document.querySelectorAll(".legend-count").forEach((el) => {
     el.textContent = counts[Number(el.dataset.cluster)];
   });
-  document.getElementById("counter").textContent = state.total;
+  document.getElementById("counter").textContent = state.points.length;
 }
 
 async function poll() {
@@ -261,9 +260,10 @@ async function poll() {
         state.points.push(p);
         state.lastId = Math.max(state.lastId, p.id);
       }
-      state.total = data.total;
       state.firstLoad = false;
       updateCounts();
+      // pagina piena: ci sono altri punti da recuperare, non aspettare
+      if (data.more) return poll();
     }
   } catch {
     /* rete ballerina alla serata: si riprova al giro dopo */
