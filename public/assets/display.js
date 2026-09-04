@@ -4,7 +4,7 @@ const POLL_MS = 2000;        // ogni quanto chiedere i punti nuovi
 const AUTO_SWITCH_MS = 45000; // ogni quanto passare da PCA a UMAP e viceversa
 const MORPH_MS = 1500;        // durata della transizione
 const HIGHLIGHT_MS = 20000;   // per quanto un arrivo resta evidenziato
-const MAX_LABELS = 3;         // quanti nomi mostrare contemporaneamente
+const NAME_COUNT = 10;        // quanti degli ultimi arrivati mostrano il nome
 
 const canvas = document.getElementById("plot");
 const ctx = canvas.getContext("2d");
@@ -20,8 +20,6 @@ const state = {
   morphTo: 0,
   morphStart: -Infinity,
   lastSwitch: Date.now(),
-  clusterCounts: [],
-  centroids: { pca: [], umap: [] },
   view: { w: 0, h: 0, cx: 0, cy: 0, scale: 1, dpr: 1 },
   firstLoad: true,
 };
@@ -122,28 +120,13 @@ function draw() {
     ctx.fill();
   }
 
-  // nomi dei gruppi, posizionati sul baricentro di ciascun cluster
-  const cents = state.centroids;
-  ctx.textAlign = "center";
-  ctx.textBaseline = "middle";
-  ctx.font = `600 ${Math.max(13, v.scale * 0.055)}px "IBM Plex Sans", sans-serif`;
-  for (let c = 0; c < m.clusters.length; c++) {
-    const a = cents.pca[c];
-    const b = cents.umap[c];
-    if (!a || !b) continue;
-    const [px, py] = project(a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t);
-    ctx.fillStyle = withAlpha(m.clusters[c].color, 0.5 + 0.35 * t);
-    ctx.fillText(m.clusters[c].name.toLowerCase(), px, py);
-  }
-
-  // in modalità PCA, cosa separa i due assi: sfuma quando si passa a UMAP
-  if (t < 0.98) {
-    drawAxisHints(1 - t);
-  }
-
   // partecipanti
   const pr = Math.max(4, v.scale * 0.016);
-  const labelled = [];
+
+  // gli ultimi arrivati tengono il nome finché non li spingono fuori quelli dopo
+  const named = new Set(state.points.slice(-NAME_COUNT).map((p) => p.id));
+
+  const labels = [];
   for (const p of state.points) {
     const x = p.x + (p.ux - p.x) * t;
     const y = p.y + (p.uy - p.y) * t;
@@ -169,27 +152,10 @@ function draw() {
     ctx.strokeStyle = fresh ? "#edf0ff" : "rgba(11,16,48,0.85)";
     ctx.stroke();
 
-    if (fresh) labelled.push({ p, px, py, age, color });
+    if (named.has(p.id)) labels.push({ p, px, py, age, color, fresh });
   }
 
-  // solo gli ultimi arrivati mostrano il nome, altrimenti diventa illeggibile
-  labelled.sort((a, b) => a.age - b.age);
-  ctx.textAlign = "left";
-  ctx.textBaseline = "middle";
-  const fs = Math.max(15, v.scale * 0.062);
-  ctx.font = `700 ${fs}px "Bricolage Grotesque", sans-serif`;
-  for (const l of labelled.slice(0, MAX_LABELS)) {
-    const fade = Math.min(1, (HIGHLIGHT_MS - l.age) / 2500) * Math.min(1, l.age / 350);
-    const text = l.p.name;
-    const w = ctx.measureText(text).width;
-    const ox = l.px + pr + fs * 0.5;
-    const oy = l.py;
-    ctx.fillStyle = `rgba(11, 16, 48, ${0.8 * fade})`;
-    roundRect(ox - fs * 0.3, oy - fs * 0.72, w + fs * 0.6, fs * 1.44, fs * 0.36);
-    ctx.fill();
-    ctx.fillStyle = withAlpha(l.color, fade);
-    ctx.fillText(text, ox, oy + 1);
-  }
+  drawLabels(labels, pr);
 
   if (!reduceMotion && now - state.lastSwitch > AUTO_SWITCH_MS) {
     setMode(state.mode === "pca" ? "umap" : "pca");
@@ -198,23 +164,45 @@ function draw() {
   requestAnimationFrame(draw);
 }
 
-function drawAxisHints(alpha) {
-  const { axes } = state.model;
+/**
+ * I nomi degli ultimi arrivati. Se due punti sono vicini le targhette si
+ * accavallerebbero, quindi ognuna scivola in verticale finché trova posto.
+ */
+function drawLabels(labels, pr) {
   const v = state.view;
-  const s = v.scale;
-  ctx.font = `500 ${Math.max(12, s * 0.042)}px "IBM Plex Sans", sans-serif`;
-  ctx.fillStyle = `rgba(140, 151, 201, ${0.62 * alpha})`;
+  const fs = Math.max(15, v.scale * 0.055);
+  ctx.textAlign = "left";
+  ctx.textBaseline = "middle";
+  ctx.font = `700 ${fs}px "Bricolage Grotesque", sans-serif`;
 
-  const put = (text, x, y, align, baseline) => {
-    ctx.textAlign = align;
-    ctx.textBaseline = baseline;
-    text.forEach((line, i) => ctx.fillText(line, x, y + i * s * 0.055));
-  };
+  const placed = [];
+  const h = fs * 1.44;
 
-  put(axes.pc1.pos, v.cx + s * 1.12, v.cy - s * 0.03, "right", "middle");
-  put(axes.pc1.neg, v.cx - s * 1.12, v.cy - s * 0.03, "left", "middle");
-  put(axes.pc2.pos, v.cx, v.cy - s * 1.15, "center", "top");
-  put(axes.pc2.neg, v.cx, v.cy + s * 1.09, "center", "top");
+  // i più recenti si piazzano per primi e tengono il posto migliore
+  labels.sort((a, b) => a.age - b.age);
+
+  for (const l of labels) {
+    const w = ctx.measureText(l.p.name).width + fs * 0.6;
+    let x = Math.min(l.px + pr + fs * 0.45, v.w - w - 6);
+    let y = l.py - h / 2;
+
+    for (let attempt = 0; attempt < 14; attempt++) {
+      const hit = placed.find(
+        (q) => x < q.x + q.w && x + w > q.x && y < q.y + q.h && y + h > q.y
+      );
+      if (!hit) break;
+      y = attempt % 2 === 0 ? hit.y + h + 3 : l.py - h / 2 - (attempt + 1) * (h + 3);
+    }
+    y = Math.max(6, Math.min(v.h - h - 6, y));
+    placed.push({ x, y, w, h });
+
+    const fade = Math.min(1, l.age / 350);
+    ctx.fillStyle = `rgba(11, 16, 48, ${(l.fresh ? 0.82 : 0.62) * fade})`;
+    roundRect(x, y, w, h, fs * 0.36);
+    ctx.fill();
+    ctx.fillStyle = withAlpha(l.color, (l.fresh ? 1 : 0.82) * fade);
+    ctx.fillText(l.p.name, x + fs * 0.3, y + h / 2 + 1);
+  }
 }
 
 function roundRect(x, y, w, h, r) {
@@ -228,21 +216,6 @@ function roundRect(x, y, w, h, r) {
 }
 
 /* ------------------------------------------------------------------ dati */
-
-function computeCentroids() {
-  const m = state.model;
-  const n = m.clusters.length;
-  const acc = Array.from({ length: n }, () => [0, 0, 0, 0, 0]);
-  m.ref.cluster.forEach((c, i) => {
-    acc[c][0] += m.ref.xy[i][0];
-    acc[c][1] += m.ref.xy[i][1];
-    acc[c][2] += m.ref.uxy[i][0];
-    acc[c][3] += m.ref.uxy[i][1];
-    acc[c][4] += 1;
-  });
-  state.centroids.pca = acc.map((a) => [a[0] / a[4], a[1] / a[4]]);
-  state.centroids.umap = acc.map((a) => [a[2] / a[4], a[3] / a[4]]);
-}
 
 function renderLegend() {
   const m = state.model;
@@ -328,7 +301,6 @@ canvas.addEventListener("click", () => setMode(state.mode === "pca" ? "umap" : "
   renderQr();
   const res = await fetch("/api/model");
   state.model = await res.json();
-  computeCentroids();
   renderLegend();
   updateModeText();
   poll();
