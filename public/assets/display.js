@@ -259,38 +259,73 @@ function draw() {
   requestAnimationFrame(draw);
 }
 
-/** Se due targhette si accavallano, quella meno recente scivola in verticale. */
+/**
+ * I nomi degli ultimi arrivati.
+ * Una targhetta cerca posto prima accanto al suo punto (destra, sinistra, sopra,
+ * sotto) e solo dopo si allontana, di poco. Se resta staccata dal punto viene
+ * disegnato un filo che li collega, altrimenti non si capisce di chi e' il nome.
+ * Se dopo tutti i tentativi non c'e' spazio, il nome viene saltato: meglio sette
+ * targhette leggibili che dieci sparse a caso.
+ */
 function drawLabels(labels, pr) {
   const v = state.view;
-  const fs = Math.max(14, Math.min(30, v.scale * 0.055));
+  const fs = Math.max(13, Math.min(28, v.scale * 0.05));
   ctx.textAlign = "left";
   ctx.textBaseline = "middle";
   ctx.font = `700 ${fs}px "Bricolage Grotesque", sans-serif`;
 
   const placed = [];
-  const h = fs * 1.44;
+  const h = fs * 1.4;
+  const gap = Math.max(5, fs * 0.34);
+  const passo = h + 4;
+
+  const libero = (x, y, w) =>
+    x >= 2 && y >= 2 && x + w <= v.w - 2 && y + h <= v.h - 2 &&
+    !placed.some((q) => x < q.x + q.w && x + w > q.x && y < q.y + q.h && y + h > q.y);
 
   for (const l of labels) {
     const w = ctx.measureText(l.p.name).width + fs * 0.6;
-    const x = Math.max(4, Math.min(l.px + pr + fs * 0.45, v.w - w - 4));
-    let y = l.py - h / 2;
+    const dx = pr + gap;
 
-    for (let attempt = 0; attempt < 14; attempt++) {
-      const hit = placed.find(
-        (q) => x < q.x + q.w && x + w > q.x && y < q.y + q.h && y + h > q.y
-      );
-      if (!hit) break;
-      y = attempt % 2 === 0 ? hit.y + h + 3 : l.py - h / 2 - (attempt + 1) * (h + 3);
+    // prima i quattro lati, poi scostamenti verticali sempre piu' ampi
+    const candidati = [];
+    for (let riga = 0; riga <= 3; riga++) {
+      for (const segno of riga === 0 ? [0] : [1, -1]) {
+        const dy = segno * riga * passo;
+        candidati.push([l.px + dx, l.py - h / 2 + dy]);
+        candidati.push([l.px - dx - w, l.py - h / 2 + dy]);
+      }
+      if (riga === 0) {
+        candidati.push([l.px - w / 2, l.py - pr - gap - h]);
+        candidati.push([l.px - w / 2, l.py + pr + gap]);
+      }
     }
-    y = Math.max(4, Math.min(v.h - h - 4, y));
+
+    const posto = candidati.find(([x, y]) => libero(x, y, w));
+    if (!posto) continue;
+    const [x, y] = posto;
     placed.push({ x, y, w, h });
 
     const fade = Math.min(1, l.age / 350);
-    ctx.fillStyle = `rgba(11, 16, 48, ${(l.fresh ? 0.84 : 0.66) * fade})`;
+    const cy = y + h / 2;
+
+    // filo di collegamento, solo se la targhetta non tocca gia' il punto
+    const vicino = x <= l.px + dx + 1 && x >= l.px - dx - w - 1 && Math.abs(cy - l.py) < h;
+    if (!vicino) {
+      const ax = x + (l.px > x + w / 2 ? w : 0);
+      ctx.strokeStyle = withAlpha(l.color, 0.45 * fade);
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(ax, cy);
+      ctx.lineTo(l.px, l.py);
+      ctx.stroke();
+    }
+
+    ctx.fillStyle = `rgba(11, 16, 48, ${(l.fresh ? 0.88 : 0.72) * fade})`;
     roundRect(x, y, w, h, fs * 0.36);
     ctx.fill();
     ctx.fillStyle = withAlpha(l.color, (l.fresh ? 1 : 0.85) * fade);
-    ctx.fillText(l.p.name, x + fs * 0.3, y + h / 2 + 1);
+    ctx.fillText(l.p.name, x + fs * 0.3, cy + 1);
   }
 }
 
