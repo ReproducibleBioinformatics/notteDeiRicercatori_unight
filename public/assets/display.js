@@ -1,6 +1,7 @@
 import qrcode from "/assets/qrcode.mjs";
 
 const POLL_MS = 2000;       // ogni quanto chiedere i punti nuovi
+const RESYNC_MS = 45000;    // ogni quanto rileggere tutto, per accorgersi delle cancellazioni
 const MORPH_MS = 1500;      // durata della transizione fra PCA e UMAP
 const HIGHLIGHT_MS = 20000; // per quanto l'ultimo arrivato resta evidenziato
 const MAX_NAMES = 10;       // quanti nomi al massimo, fra quelli inquadrati
@@ -23,6 +24,7 @@ const state = {
   view: { w: 0, h: 0, cx: 0, cy: 0, scale: 1 },
   cam: { k: 1, x: 0, y: 0 },
   firstLoad: true,
+  lastResync: 0,
 };
 
 const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -371,26 +373,58 @@ function updateCounts() {
 }
 
 async function poll() {
+  const now = Date.now();
+  // ogni tanto si rilegge tutto da capo: e' l'unico modo per accorgersi che
+  // qualcuno e' stato tolto dalla mappa dalla pagina di moderazione
+  const resync = now - state.lastResync > RESYNC_MS;
+
   try {
-    const res = await fetch(`/api/points?since=${state.lastId}`, { cache: "no-store" });
-    if (res.ok) {
-      const data = await res.json();
-      const now = Date.now();
-      for (const p of data.points) {
-        if (state.byId.has(p.id)) continue;
-        state.byId.add(p.id);
-        p.arrivedAt = state.firstLoad ? 0 : now; // al primo giro non si evidenzia lo storico
-        state.points.push(p);
-        state.lastId = Math.max(state.lastId, p.id);
+    if (resync) {
+      const tutti = await leggiTutti();
+      if (tutti) {
+        const visti = new Map(state.points.map((p) => [p.id, p.arrivedAt]));
+        state.points = tutti.map((p) => ({ ...p, arrivedAt: visti.get(p.id) ?? 0 }));
+        state.byId = new Set(tutti.map((p) => p.id));
+        state.lastId = tutti.length ? Math.max(...tutti.map((p) => p.id)) : 0;
+        state.lastResync = now;
+        state.firstLoad = false;
+        updateCounts();
       }
-      state.firstLoad = false;
-      updateCounts();
-      if (data.more) return poll(); // pagina piena: ce ne sono altri, non aspettare
+    } else {
+      const res = await fetch(`/api/points?since=${state.lastId}`, { cache: "no-store" });
+      if (res.ok) {
+        const data = await res.json();
+        for (const p of data.points) {
+          if (state.byId.has(p.id)) continue;
+          state.byId.add(p.id);
+          p.arrivedAt = state.firstLoad ? 0 : now; // al primo giro non si evidenzia lo storico
+          state.points.push(p);
+          state.lastId = Math.max(state.lastId, p.id);
+        }
+        state.firstLoad = false;
+        updateCounts();
+        if (data.more) return poll(); // pagina piena: ce ne sono altri, non aspettare
+      }
     }
   } catch {
     /* rete ballerina alla serata: si riprova al giro dopo */
   }
   setTimeout(poll, POLL_MS);
+}
+
+/** Rilegge l'elenco completo, seguendo le pagine. */
+async function leggiTutti() {
+  const out = [];
+  let since = 0;
+  for (let giro = 0; giro < 30; giro++) {
+    const res = await fetch(`/api/points?since=${since}`, { cache: "no-store" });
+    if (!res.ok) return null;
+    const data = await res.json();
+    out.push(...data.points);
+    if (!data.more || !data.points.length) break;
+    since = data.points[data.points.length - 1].id;
+  }
+  return out;
 }
 
 /* ---------------------------------------------------------------------- QR */
